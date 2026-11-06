@@ -41,7 +41,7 @@
 
   /* ============ โหมดทดลอง: จำลองหลังบ้านไว้ในเบราว์เซอร์ ============ */
   function demo(b) {
-    const KEY = 'cz_demo_v3';
+    const KEY = 'cz_demo_v4';
     let db; try { db = JSON.parse(localStorage.getItem(KEY)); } catch (_) { /* ไม่มี storage */ }
     if (!db) db = demoSeed();
     const save = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (_) { /* ไม่มี storage */ } };
@@ -68,7 +68,7 @@
         return {
           me: null, settings: db.settings, sets: db.sets || [], dutyDays: db.dutyDays || [], zones: db.zones.filter(z => z.active),
           students: db.students.map(x => ({ ...x, lastName: mask && x.lastName ? x.lastName.charAt(0) + '.' : x.lastName })),
-          checks: db.checks.map(c => ({ ...c, by: '' })), opening: db.opening,
+          checks: db.checks.map(c => ({ ...c, by: '' })), opening: db.opening, late: db.late || [],
           payments: db.payments.filter(p => p.status !== 'void').map(p => ({ id: p.id, studentId: p.studentId, zoneId: p.zoneId, date: p.date, kind: p.kind, amount: p.amount, status: p.status })),
         };
       },
@@ -82,7 +82,7 @@
         const m = me(), can = (z) => m.role === 'admin' || m.zoneIds.includes(z);
         return {
           me: m, settings: db.settings, sets: (db.sets || []).filter(x => can(x.zoneId)), dutyDays: (db.dutyDays || []).filter(d => !d.zoneId || can(d.zoneId)), zones: db.zones.filter(z => can(z.id)), students: db.students.filter(s => can(s.zoneId)),
-          checks: db.checks.filter(c => can(c.zoneId)), opening: db.opening.filter(o => can(o.zoneId)), payments: db.payments.filter(p => can(p.zoneId)),
+          checks: db.checks.filter(c => can(c.zoneId)), opening: db.opening.filter(o => can(o.zoneId)), late: (db.late || []).filter(l => can(l.zoneId)), payments: db.payments.filter(p => can(p.zoneId)),
         };
       },
       saveChecks() {
@@ -199,6 +199,7 @@
       sessions: {}, settings: { zoneFine: 10, roomFine: 10, checkDays: '1,2,3,4,5', publicView: true, maskNames: false }, dutyDays: [],
       zones: [{ id: 'z1', name: 'ตัวอย่าง: หน้าอาคาร 1', sort: 1, active: true }],
       students, checks, opening: [], payments: [],
+      late: checks.filter((c, i) => c.status === 'skip' && i % 2 === 0).map((c, i) => ({ zoneId: 'z1', studentId: c.studentId, date: c.date, time: '08:0' + (i % 10) })),
     };
   }
 
@@ -228,6 +229,9 @@
     if (/^\d+$/.test(q)) return String(s.no) === q || (!!s.code && s.code.includes(q) && (q.length >= 3 || s.code === q));
     return plain(fullName(s)).includes(plain(q)) || plain(s.code).includes(plain(q));
   };
+  // มาโรงเรียนสาย (หลัง 07:50): วันที่เป็นสีเหลือง
+  const lateAt = (sid, dt) => (state.data.lateIdx[sid] || {})[dt] || '';
+  const lateDate = (sid, dt, text) => { const t = lateAt(sid, dt); return t ? `<span class="late" title="มาโรงเรียน ${t} น. (สาย)">${text}</span>` : text; };
   const codeTag = (s) => s.code ? `<span class="code-tag">${esc(s.code)}</span>` : '';
   function splitName(n) {
     const t = String(n).replace(/\s+/g, ' ').trim();
@@ -444,6 +448,9 @@
     const d = await api(state.session ? 'data' : 'publicData');
     d.dutyDays = d.dutyDays || [];
     d.sets = d.sets || [];
+    d.late = d.late || [];
+    d.lateIdx = {};
+    d.late.forEach(l => { (d.lateIdx[l.studentId] = d.lateIdx[l.studentId] || {})[l.date] = l.time; });
     d.checks.forEach(c => { if (!ST[c.status]) c.status = c.zoneAbsent ? 'skip' : 'present'; });
     state.data = d;
   }
@@ -530,7 +537,7 @@
           return `<li class="stu ${ST[st].cls}">
             <button class="stu-main" ${dis} data-mark="zone" data-id="${esc(s.id)}" aria-label="${esc(fullName(s))}: ${ST[st].l} (แตะเพื่อสลับ มาทำ/ไม่ทำเขต)">
               <span class="no">${s.no || ''}</span>
-              <span class="name">${esc(fullName(s))}<small>${[s.code ? 'เลขประจำตัว ' + esc(s.code) : '', dutyLabel(s), r && r.absent.length ? `ไม่ทำเขตสะสม ${r.absent.length} วัน` : '', owe ? `ค้าง ${baht(owe)}` : ''].filter(Boolean).join(' · ')}</small></span>
+              <span class="name">${esc(fullName(s))}<small>${[lateAt(s.id, state.date) ? `<span class="late">มาสาย ${esc(lateAt(s.id, state.date))}</span>` : '', s.code ? 'เลขประจำตัว ' + esc(s.code) : '', dutyLabel(s), r && r.absent.length ? `ไม่ทำเขตสะสม ${r.absent.length} วัน` : '', owe ? `ค้าง ${baht(owe)}` : ''].filter(Boolean).join(' · ')}</small></span>
             </button>
             <button class="chip st ${ST[st].cls}" ${dis} data-act="pick-status" data-id="${esc(s.id)}" aria-label="เปลี่ยนสถานะ">${ST[st].l}${ro ? '' : '<small>▾</small>'}</button>
             <button class="chip room ${room ? 'on' : ''}" ${dis} data-mark="room" data-id="${esc(s.id)}" aria-pressed="${!!room}">ห้อง<small>${room ? 'ขาด' : 'มา'}</small></button>
@@ -624,7 +631,7 @@
           </select>
         </div>
         <div class="row no-print" style="margin-bottom:6px">
-          <span class="sub grow" style="margin:0">แตะชื่อเพื่อดูประวัติ · ยอดค้าง = ยอดยกมา + ค่าปรับ (เขต ${set.zoneFine} / ห้อง ${set.roomFine} บาทต่อครั้ง) − ที่จ่ายแล้ว</span>
+          <span class="sub grow" style="margin:0">แตะชื่อเพื่อดูประวัติ · <span class="late">วันที่สีเหลือง</span> = มาโรงเรียนสาย (หลัง 07:50) · ยอดค้าง = ยอดยกมา + ค่าปรับ (เขต ${set.zoneFine} / ห้อง ${set.roomFine} บาทต่อครั้ง) − ที่จ่ายแล้ว</span>
           <button class="btn sm" data-act="csv">⬇ CSV</button>
           <button class="btn sm" data-act="print">พิมพ์</button>
         </div>
@@ -639,7 +646,7 @@
               <td class="c-name"><button class="linkbtn name-link" data-act="student" data-id="${esc(r.s.id)}">${esc(fullName(r.s))}</button>${codeTag(r.s)}${r.s.active ? '' : ' <span class="badge gray">ย้ายออก</span>'}</td>
               <td class="num c-due" data-l="ค่าเขต"><span class="money ${r.zoneDue > 0 ? 'due' : ''}">${baht(r.zoneDue)}</span></td>
               <td class="num c-due ${r.roomDue ? '' : 'c-zero'}" data-l="ค่าห้อง"><span class="money ${r.roomDue > 0 ? 'due' : ''}">${r.roomDue ? baht(r.roomDue) : '–'}</span></td>
-              <td class="c-dates"><div class="dates">${ds.length ? `<b>${ds.length} วัน</b> · ${ds.map(shortDate).join(', ')}` : '–'}${rs.length ? `<br><span style="color:var(--room)">ขาดเวรห้อง ${rs.length} วัน · ${rs.map(shortDate).join(', ')}</span>` : ''}${nl || nm ? `<br><span class="muted">ลา ${nl} · ขาดเรียน ${nm} วัน (ไม่เสียเงิน)</span>` : ''}</div></td>
+              <td class="c-dates"><div class="dates">${ds.length ? `<b>${ds.length} วัน</b> · ${ds.map(dt => lateDate(r.s.id, dt, shortDate(dt))).join(', ')}` : '–'}${rs.length ? `<br><span style="color:var(--room)">ขาดเวรห้อง ${rs.length} วัน · ${rs.map(shortDate).join(', ')}</span>` : ''}${nl || nm ? `<br><span class="muted">ลา ${nl} · ขาดเรียน ${nm} วัน (ไม่เสียเงิน)</span>` : ''}</div></td>
               <td class="c-act">${canEdit() ? `<button class="btn sm" data-act="pay" data-id="${esc(r.s.id)}">รับเงิน</button>` : ''}</td>
             </tr>`;
           }).join('') : '<tr><td colspan="6" class="empty">ไม่พบนักเรียน</td></tr>'}</tbody>
@@ -663,7 +670,7 @@
     const line = (label, z, rm, cls = '') => `<tr class="${cls}"><td>${label}</td><td class="num">${z}</td><td class="num">${rm}</td></tr>`;
     modal(`
       <h2>${esc(fullName(s))}</h2>
-      <p class="sub">เลขที่ ${s.no || '-'}${s.code ? ' · เลขประจำตัว <b>' + esc(s.code) + '</b>' : ''} · ${esc(zoneName(s.zoneId))}<br>ไม่ทำเขต ${r.absent.length} · ขาดเวรห้อง ${r.room.length} · ลา ${r.leave.length} · ขาดเรียน ${r.miss.length} วัน</p>
+      <p class="sub">เลขที่ ${s.no || '-'}${s.code ? ' · เลขประจำตัว <b>' + esc(s.code) + '</b>' : ''} · ${esc(zoneName(s.zoneId))}<br>ไม่ทำเขต ${r.absent.length} · ขาดเวรห้อง ${r.room.length} · ลา ${r.leave.length} · ขาดเรียน ${r.miss.length} วัน${Object.keys(state.data.lateIdx[s.id] || {}).length ? ` · <span class="late">มาสาย ${Object.keys(state.data.lateIdx[s.id]).length} วัน</span>` : ''}</p>
       <table class="calc"><thead><tr><th></th><th class="num">ค่าเขต</th><th class="num">ค่าห้อง</th></tr></thead><tbody>
         ${r.open ? line('ยอดยกมา (' + esc(thDate(r.open.asOf)) + ')', baht(r.open.zoneDue), baht(r.open.roomDue)) : ''}
         ${line(`ค่าปรับใหม่`, `${nz} × ${set.zoneFine} = ${baht(r.zoneFine)}`, `${nr} × ${set.roomFine} = ${baht(r.roomFine)}`)}
@@ -674,7 +681,7 @@
       ${Object.keys(byMonth).length ? `<div class="hist">${Object.keys(byMonth).sort().reverse().map(k => `
         <h4>${parseIso(k + '-01').toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })} <span class="muted">· ${byMonth[k].length} วัน</span></h4>
         <ol>${byMonth[k].sort((x, y) => y.date.localeCompare(x.date)).map(c => `<li>
-          <span class="h-date">${esc(thDate(c.date, { weekday: 'short', month: 'short', year: 'numeric' }))}</span>
+          <span class="h-date">${lateDate(s.id, c.date, esc(thDate(c.date, { weekday: 'short', month: 'short', year: 'numeric' })))}${lateAt(s.id, c.date) ? `<small class="late-t">มาสาย ${esc(lateAt(s.id, c.date))} น.</small>` : ''}</span>
           <span class="h-tags">${c.status !== 'present' ? `<span class="dchip ${ST[c.status].cls}">${esc(ST[c.status].l)}${c.status === 'skip' && !(c.source === 'import' || (r.open && c.date <= r.open.asOf)) ? ' · ' + baht(set.zoneFine) : ''}</span>` : ''}${c.roomAbsent ? `<span class="dchip room">ขาดเวรห้อง</span>` : ''}</span>
           <small class="muted">${c.source === 'import' ? 'ระบบเดิม' : c.by ? 'โดย ' + esc(c.by) : ''}</small></li>`).join('')}</ol>`).join('')}</div>` : '<p class="muted">มาทำเขตครบทุกวัน</p>'}
       ${pays.length ? `<h3 style="margin:16px 0 0;font-size:14px">การจ่ายเงิน</h3><ul class="pay-list">${pays.map(p => `<li><span class="grow">${esc(thDate(p.date))} · ${p.kind === 'room' ? 'ค่าห้อง' : 'ค่าเขต'}</span><b>${baht(p.amount)}</b></li>`).join('')}</ul>` : ''}

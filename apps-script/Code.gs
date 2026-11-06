@@ -39,6 +39,8 @@ const H = {
   // role: admin = ทุกเขต + ตั้งค่า · head = หัวหน้าเขต (เฉพาะ zoneIds คั่นด้วยจุลภาค)
   Users: ['username', 'name', 'role', 'zoneIds', 'salt', 'hash', 'active', 'createdAt'],
   Settings: ['key', 'value'],
+  // เวลามาโรงเรียนที่สาย (หลัง 07:50) จากรายงานการมาเรียน
+  Late: ['zoneId', 'studentId', 'date', 'time', 'source'],
 };
 const STATUSES = ['present', 'skip', 'absent', 'leave'];
 // publicView = 1 เปิดให้ดูข้อมูลโดยไม่ต้องเข้าสู่ระบบ (ดูอย่างเดียว) · maskNames = 1 ซ่อนนามสกุลในหน้าสาธารณะ
@@ -129,6 +131,7 @@ function buildData_(me) {
     opening: readRows_('Opening').filter(o => can(o.zoneId)).map(o => ({
       studentId: o.studentId, zoneId: o.zoneId, asOf: o.asOf, zoneDue: Number(o.zoneDue) || 0, roomDue: Number(o.roomDue) || 0,
     })),
+    late: optRows_('Late').filter(l => can(l.zoneId)).map(l => ({ studentId: l.studentId, date: l.date, time: l.time })),
     payments: readRows_('Payments').filter(p => can(p.zoneId)).map(p => ({
       id: p.id, studentId: p.studentId, zoneId: p.zoneId, date: p.date, kind: p.kind, amount: Number(p.amount) || 0,
       note: p.note, byName: p.byName, createdAt: p.createdAt, status: p.status || 'active', voidByName: p.voidByName,
@@ -463,6 +466,9 @@ function sheet_(name) {
   if (!s) throw new Error('ยังไม่ได้รัน setup');
   return s;
 }
+
+// ชีตที่เพิ่มทีหลัง: ถ้ายังไม่มีชีต ถือว่าไม่มีข้อมูล
+function optRows_(name) { return ss_().getSheetByName(name) ? readRows_(name) : []; }
 
 function readRows_(name) {
   const s = sheet_(name), headers = H[name];
