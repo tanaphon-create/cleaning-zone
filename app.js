@@ -1447,6 +1447,6 @@
   function userSvg() { return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6" stroke-linecap="round"/></svg>'; }
 
   const h = location.hash.slice(1);
-  if (['home', 'check', 'summary', 'days', 'admin'].includes(h)) state.tab = h;
+  if (['home', 'check', 'summary', 'room', 'days', 'admin'].includes(h)) state.tab = h;
   render();
 })();
