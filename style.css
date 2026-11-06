@@ -240,8 +240,8 @@ dialog::backdrop { background: rgba(16, 24, 20, .45); }
 @media (max-width: 640px) {
   .sday small { font-size: 10px; }
   .chip { min-width: 54px; }
-  .tab { padding: 7px 9px; font-size: 14px; }
-  .tabs { gap: 2px; }
+  .tab { padding: 7px 6px; font-size: 13.5px; }
+  .tabs { gap: 0; }
 }
 
 /* ---------- สถานะรายวัน ---------- */
@@ -356,3 +356,6 @@ dialog { max-height: calc(100dvh - 32px); overflow: auto; }
 .wk-switch.is-on { background: var(--brand-soft); border-style: solid; border-color: transparent; }
 .wk-switch small { color: var(--muted); }
 .wk-list.off li { opacity: .75; }
+.stats3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.room-list li { grid-template-columns: minmax(0, 1fr) auto; }
+@media (max-width: 640px) { .room-list li { grid-template-columns: minmax(0, 1fr) auto; } .room-list .wk-act { justify-content: flex-end; } .room-list .wk-act .btn { flex: 0 0 auto; } }
