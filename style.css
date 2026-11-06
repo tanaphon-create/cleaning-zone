@@ -331,3 +331,23 @@ dialog { max-height: calc(100dvh - 32px); overflow: auto; }
 .sync::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--brand); animation: syncp 1s ease-in-out infinite alternate; }
 @keyframes syncp { from { opacity: .25 } to { opacity: 1 } }
 @media (prefers-reduced-motion: reduce) { .sync::before { animation: none; } }
+
+/* ---------- เก็บเงินรายสัปดาห์ ---------- */
+.mode-seg { margin-bottom: 12px; }
+.wk-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; scroll-snap-type: x proximity; }
+.wk { flex: 0 0 auto; min-width: 128px; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; cursor: pointer; scroll-snap-align: center; }
+.wk b { display: block; font-size: 14px; }
+.wk small { display: block; font-size: 12px; color: var(--muted); }
+.wk.owe small:last-child { color: var(--bad); font-weight: 600; }
+.wk.ok small:last-child { color: var(--ok); font-weight: 600; }
+.wk.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand) inset; background: var(--brand-soft); }
+.wk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.wk-list li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.wk-list li.paid { background: #f0fdf4; border-color: #bbf7d0; }
+.wk-who { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.wk-who .no { color: var(--muted); font-size: 13px; min-width: 20px; }
+.wk-amt { font-size: 14px; display: grid; gap: 4px; }
+.wk-amt small { color: var(--muted); }
+.wk-act { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.badge.ok { background: #dcfce7; color: var(--ok); }
+@media (max-width: 640px) { .wk-list li { grid-template-columns: minmax(0, 1fr); } .wk-act { justify-content: flex-start; } .wk-act .btn { flex: 1 1 auto; } }

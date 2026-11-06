@@ -36,7 +36,8 @@ const H = {
   DutyDays: ['date', 'note', 'updatedByName', 'updatedAt', 'zoneId'],
   // ยอดยกมาจากระบบเดิม ณ วันที่ asOf
   Opening: ['studentId', 'zoneId', 'asOf', 'zoneDue', 'roomDue', 'source'],
-  Payments: ['id', 'studentId', 'zoneId', 'date', 'kind', 'amount', 'note', 'byName', 'createdAt', 'status', 'voidByName'],
+  // week = วันจันทร์ของสัปดาห์ที่เก็บเงินนี้ (ว่าง = รับเงินทั่วไป/ยอดยกมา)
+  Payments: ['id', 'studentId', 'zoneId', 'date', 'kind', 'amount', 'note', 'byName', 'createdAt', 'status', 'voidByName', 'week'],
   // role: admin = ทุกเขต + ตั้งค่า · head = หัวหน้าเขต (เฉพาะ zoneIds คั่นด้วยจุลภาค)
   Users: ['username', 'name', 'role', 'zoneIds', 'salt', 'hash', 'active', 'createdAt'],
   Settings: ['key', 'value'],
@@ -45,7 +46,8 @@ const H = {
 };
 const STATUSES = ['present', 'skip', 'absent', 'leave'];
 // publicView = 1 เปิดให้ดูข้อมูลโดยไม่ต้องเข้าสู่ระบบ (ดูอย่างเดียว) · maskNames = 1 ซ่อนนามสกุลในหน้าสาธารณะ
-const DEFAULT_SETTINGS = { zoneFine: '10', roomFine: '10', checkDays: '1,2,3,4,5', publicView: '1', maskNames: '0' };
+// termStart = วันเริ่มนับ "สัปดาห์ที่ 1" ของภาคเรียน (ว่าง = นับจากวันแรกที่มีข้อมูล)
+const DEFAULT_SETTINGS = { zoneFine: '10', roomFine: '10', checkDays: '1,2,3,4,5', publicView: '1', maskNames: '0', termStart: '' };
 
 /* ---------- ติดตั้งครั้งแรก (รันซ้ำได้ ไม่ลบข้อมูล) ---------- */
 function setup() {
@@ -107,7 +109,7 @@ function publicData_() {
   const d = buildData_(null);
   d.zones = d.zones.filter(z => z.active);
   d.checks.forEach(c => { c.by = ''; });
-  d.payments = d.payments.filter(p => p.status !== 'void').map(p => ({ id: p.id, studentId: p.studentId, zoneId: p.zoneId, date: p.date, kind: p.kind, amount: p.amount, status: p.status }));
+  d.payments = d.payments.filter(p => p.status !== 'void').map(p => ({ id: p.id, studentId: p.studentId, zoneId: p.zoneId, date: p.date, kind: p.kind, amount: p.amount, status: p.status, week: p.week }));
   if (set.maskNames) d.students.forEach(s => { s.lastName = s.lastName ? s.lastName.charAt(0) + '.' : ''; });
   return d;
 }
@@ -137,7 +139,7 @@ function buildData_(me) {
     late: optRows_('Late').filter(l => can(l.zoneId)).map(l => ({ studentId: l.studentId, date: l.date, time: l.time })),
     payments: readRows_('Payments').filter(p => can(p.zoneId)).map(p => ({
       id: p.id, studentId: p.studentId, zoneId: p.zoneId, date: p.date, kind: p.kind, amount: Number(p.amount) || 0,
-      note: p.note, byName: p.byName, createdAt: p.createdAt, status: p.status || 'active', voidByName: p.voidByName,
+      note: p.note, byName: p.byName, createdAt: p.createdAt, status: p.status || 'active', voidByName: p.voidByName, week: p.week || '',
     })),
   };
 }
@@ -170,13 +172,18 @@ function addPayment_(b) {
   const st = readRows_('Students').find(s => s.id === b.studentId);
   if (!st) throw new Error('ไม่พบนักเรียน');
   requireZone_(me, st.zoneId);
-  const kind = b.kind === 'room' ? 'room' : 'zone';
-  const amount = Math.round(Number(b.amount));
-  if (!(amount > 0) || amount > 100000) throw new Error('จำนวนเงินไม่ถูกต้อง');
   if (!isDate_(b.date)) throw new Error('วันที่ไม่ถูกต้อง');
-  const row = { id: Utilities.getUuid(), studentId: st.id, zoneId: st.zoneId, date: b.date, kind, amount,
-    note: clean_(b.note, 200), byName: me.name, createdAt: now_(), status: 'active', voidByName: '' };
-  return withLock_(() => { appendObj_('Payments', row); return row; });
+  const week = isDate_(b.week) ? b.week : '';
+  // items = รับหลายยอดพร้อมกัน (เช่น ค่าเขต + ค่าห้อง ของสัปดาห์เดียวกัน)
+  const items = Array.isArray(b.items) ? b.items : [{ kind: b.kind, amount: b.amount }];
+  const rows = items.map(it => {
+    const amount = Math.round(Number(it.amount));
+    if (!(amount > 0) || amount > 100000) throw new Error('จำนวนเงินไม่ถูกต้อง');
+    return { id: Utilities.getUuid(), studentId: st.id, zoneId: st.zoneId, date: b.date, kind: it.kind === 'room' ? 'room' : 'zone', amount,
+      note: clean_(b.note, 200), byName: me.name, createdAt: now_(), status: 'active', voidByName: '', week };
+  });
+  if (!rows.length) throw new Error('ไม่มีรายการ');
+  return withLock_(() => { appendMany_('Payments', rows); return Array.isArray(b.items) ? rows : rows[0]; });
 }
 
 function voidPayment_(b) {
@@ -336,6 +343,7 @@ function saveSettings_(b) {
     checkDays: String(s.checkDays || '').split(',').filter(d => /^[0-6]$/.test(d)).join(','),
     publicView: s.publicView ? '1' : '0',
     maskNames: s.maskNames ? '1' : '0',
+    termStart: isDate_(s.termStart) ? s.termStart : '',
   };
   return withLock_(() => { writeAll_('Settings', Object.keys(out).map(k => ({ key: k, value: out[k] }))); return out; });
 }
@@ -344,7 +352,7 @@ function settings_() {
   const out = Object.assign({}, DEFAULT_SETTINGS);
   readRows_('Settings').forEach(r => { out[r.key] = r.value; });
   return { zoneFine: Number(out.zoneFine) || 0, roomFine: Number(out.roomFine) || 0, checkDays: String(out.checkDays),
-    publicView: String(out.publicView) === '1', maskNames: String(out.maskNames) === '1' };
+    publicView: String(out.publicView) === '1', maskNames: String(out.maskNames) === '1', termStart: isDate_(out.termStart) ? out.termStart : '' };
 }
 
 /* ---------- ผู้ใช้ ---------- */
