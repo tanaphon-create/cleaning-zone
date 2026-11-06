@@ -296,6 +296,10 @@
     // ไม่ได้เข้าสู่ระบบ = ดูข้อมูลอย่างเดียว (ถ้าครูเปิดให้ดูสาธารณะ) · ลงข้อมูล/แก้ไขต้องเข้าสู่ระบบ
     if (!state.session && state.showLogin) return renderLogin(app);
     if (!state.data) {
+      const cached = readCache();
+      if (cached) { state.data = prepData(cached); setTimeout(refreshInBackground, 0); }
+    }
+    if (!state.data) {
       app.innerHTML = '<div class="loading">กำลังโหลดข้อมูล…</div>';
       try { await reload(); } catch (e) {
         if (!state.session) { state.showLogin = true; state.publicOff = e.message === 'PUBLIC_OFF'; return renderLogin(app); }
@@ -312,7 +316,7 @@
       <header class="topbar">
         <div class="topbar-in">
           <div class="brand"><div class="brand-mark">${checkSvg()}</div><span>${esc(CFG.APP_NAME)}<small class="hide-sm">${esc(CFG.SCHOOL_NAME)}</small></span></div>
-          <div class="spacer"></div>
+          <div class="spacer"></div><span id="sync" class="sync" hidden>กำลังอัปเดต…</span>
           ${(state.tab === 'check' || state.tab === 'summary') && zs.length ? `<select class="select-zone" id="zone" aria-label="เลือกเขต">${zs.map(z => `<option value="${esc(z.id)}" ${z.id === state.zoneId ? 'selected' : ''}>${esc(z.name)}</option>`).join('')}</select>` : ''}
           ${canEdit() ? `<button class="btn icon" data-act="menu" aria-label="บัญชีผู้ใช้" title="${esc(state.data.me.name)}">${userSvg()}</button>`
             : '<button class="btn primary sm" data-act="show-login">เข้าสู่ระบบ</button>'}
@@ -444,15 +448,34 @@
     $('#h-q').addEventListener('input', (e) => { state.hq = e.target.value; $('#h-res').innerHTML = homeResults(); });
   }
 
+  // จำข้อมูลล่าสุดไว้ในเครื่อง: เปิดเว็บแล้วเห็นทันที แล้วค่อยอัปเดตจากเซิร์ฟเวอร์เบื้องหลัง
+  const cacheKey = () => 'cz_cache_' + (state.session ? state.session.username : 'public');
+  function readCache() { if (DEMO) return null; try { return JSON.parse(localGet(cacheKey())); } catch (_) { return null; } }
+  function clearCaches() { try { Object.keys(localStorage).filter(k => k.startsWith('cz_cache_') && k !== 'cz_cache_public').forEach(k => localStorage.removeItem(k)); } catch (_) { /* ไม่มี storage */ } }
   async function reload() {
     const d = await api(state.session ? 'data' : 'publicData');
+    if (!DEMO) localSet(cacheKey(), JSON.stringify(d));
+    state.data = prepData(d);
+  }
+  function prepData(d) {
     d.dutyDays = d.dutyDays || [];
     d.sets = d.sets || [];
     d.late = d.late || [];
     d.lateIdx = {};
     d.late.forEach(l => { (d.lateIdx[l.studentId] = d.lateIdx[l.studentId] || {})[l.date] = l.time; });
     d.checks.forEach(c => { if (!ST[c.status]) c.status = c.zoneAbsent ? 'skip' : 'present'; });
-    state.data = d;
+    return d;
+  }
+  let refreshing = false;
+  function refreshInBackground() {
+    if (refreshing) return; refreshing = true;
+    const bar = $('#sync'); if (bar) bar.hidden = false;
+    reload().then(() => {
+      // ไม่วาดหน้าใหม่ระหว่างที่กำลังเช็ค/พิมพ์ หรือเปิดหน้าต่างอยู่ (ข้อมูลใหม่ใช้ครั้งถัดไป)
+      if (!state.dirty && !$('#modal').open && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) render();
+    }).catch(e => {
+      if (e.message === 'PUBLIC_OFF' && !state.session) { state.data = null; state.showLogin = true; state.publicOff = true; render(); }
+    }).finally(() => { refreshing = false; const b = $('#sync'); if (b) b.hidden = true; });
   }
 
   function renderLogin(app) {
@@ -1064,7 +1087,7 @@
     }
     if (act === 'sum-view') { state.sum.view = t.dataset.v; return renderSummary($('#main')); }
     if (act === 'student') return openStudent(t.dataset.id);
-    if (act === 'logout') { try { await api('logout'); } catch (_) { /* ไม่เป็นไร */ } setSession(null); closeModal(); return render(); }
+    if (act === 'logout') { try { await api('logout'); } catch (_) { /* ไม่เป็นไร */ } clearCaches(); setSession(null); closeModal(); return render(); }
     if (act === 'menu') {
       const me = state.data.me;
       return modal(`<h2>${esc(me.name)}</h2><p class="sub">${esc(me.username)} · ${me.role === 'admin' ? 'ครูผู้ดูแล' : 'หัวหน้าเขต'}${DEMO ? ' · โหมดทดลอง' : ''}</p>

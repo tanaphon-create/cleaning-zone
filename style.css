@@ -325,3 +325,9 @@ dialog { max-height: calc(100dvh - 32px); overflow: auto; }
 .late { background: #fde047; color: #422006; border-radius: 4px; padding: 0 4px; font-weight: 600; }
 .late-t { display: block; color: #854d0e; font-size: 12px; }
 @media print { .late { background: #fde047 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+/* ---------- กำลังอัปเดตข้อมูลเบื้องหลัง ---------- */
+.sync { font-size: 12px; color: var(--muted); margin-right: 8px; white-space: nowrap; }
+.sync::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--brand); animation: syncp 1s ease-in-out infinite alternate; }
+@keyframes syncp { from { opacity: .25 } to { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .sync::before { animation: none; } }

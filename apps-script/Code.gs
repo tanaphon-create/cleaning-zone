@@ -15,7 +15,8 @@ const ADMIN_NAME = 'ผู้ดูแลระบบ';
 const ADMIN_INITIAL_PASSWORD = 'ChangeMe-2569'; // แก้ก่อนรัน setup
 
 const SPREADSHEET_ID = ''; // ระบบจริง: 1H4bNw_IgxjEf8xBIeKd88k2lWvJBBHpFq07aeYkqHok
-const ss_ = () => SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActive();
+let SS_ = null;
+const ss_ = () => SS_ || (SS_ = SPREADSHEET_ID ? SpreadsheetApp.openById(SPREADSHEET_ID) : SpreadsheetApp.getActive());
 
 const SESSION_SECONDS = 8 * 60 * 60;
 const MAX_FAILED_LOGINS = 5;
@@ -86,7 +87,9 @@ function doPost(e) {
     };
     const fn = handlers[b.action];
     if (!fn) throw new Error('ไม่รู้จักคำสั่ง');
-    return json_({ ok: true, data: fn(b) });
+    // อ่านข้อมูล: ใช้สำเนาในแคช (เร็ว) · คำสั่งที่เขียนข้อมูล: อ่านจากชีตจริง แล้วล้างแคช
+    USE_CACHE_ = READ_ACTIONS.indexOf(b.action) >= 0;
+    try { return json_({ ok: true, data: fn(b) }); } finally { if (!USE_CACHE_ && NO_CLEAR.indexOf(b.action) < 0) clearRowsCache_(); }
   } catch (err) {
     return json_({ ok: false, error: String(err.message || err) });
   }
@@ -468,9 +471,60 @@ function sheet_(name) {
 }
 
 // ชีตที่เพิ่มทีหลัง: ถ้ายังไม่มีชีต ถือว่าไม่มีข้อมูล
-function optRows_(name) { return ss_().getSheetByName(name) ? readRows_(name) : []; }
+function optRows_(name) {
+  if (USE_CACHE_) return rowsBundle_()[name] || [];
+  return ss_().getSheetByName(name) ? readRows_(name) : [];
+}
+
+/* ---------- แคชข้อมูลชีต (ลดเวลาโหลดจาก ~4 วินาที เหลือไม่ถึง 1 วินาที) ---------- */
+// เก็บทุกชีต (ยกเว้น Users) แบบบีบอัดใน CacheService · ล้างทันทีเมื่อมีการบันทึกผ่านเว็บ
+// ถ้าแก้ในชีตเองโดยตรง หน้าเว็บจะเห็นภายใน CACHE_SECONDS หรือรันฟังก์ชัน clearRowsCache_ ในหน้าสคริปต์
+const READ_ACTIONS = ['data', 'publicData'];
+const NO_CLEAR = ['login', 'logout', 'changePassword', 'listUsers'];
+const CACHE_SECONDS = 30 * 60;
+const CACHE_KEY = 'rows_v1';
+let USE_CACHE_ = false, BUNDLE_ = null;
+
+function rowsBundle_() {
+  if (BUNDLE_) return BUNDLE_;
+  const c = CacheService.getScriptCache();
+  try {
+    const n = Number(c.get(CACHE_KEY + '_n'));
+    if (n) {
+      const keys = Array.from({ length: n }, (_, i) => CACHE_KEY + '_' + i), got = c.getAll(keys);
+      if (keys.every(k => got[k])) {
+        const blob = Utilities.newBlob(Utilities.base64Decode(keys.map(k => got[k]).join('')), 'application/x-gzip');
+        return (BUNDLE_ = JSON.parse(Utilities.ungzip(blob).getDataAsString()));
+      }
+    }
+  } catch (e) { /* แคชเสีย อ่านใหม่ */ }
+  const b = {};
+  Object.keys(H).filter(k => k !== 'Users').forEach(k => { b[k] = ss_().getSheetByName(k) ? readSheet_(k) : null; });
+  try {
+    const z = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(b), 'application/json')).getBytes());
+    const parts = {}, size = 90000;
+    for (let i = 0; i * size < z.length; i++) parts[CACHE_KEY + '_' + i] = z.slice(i * size, (i + 1) * size);
+    parts[CACHE_KEY + '_n'] = String(Object.keys(parts).length);
+    c.putAll(parts, CACHE_SECONDS);
+  } catch (e) { /* ใหญ่เกินแคช ใช้แบบไม่แคช */ }
+  return (BUNDLE_ = b);
+}
+
+function clearRowsCache_() {
+  BUNDLE_ = null;
+  CacheService.getScriptCache().remove(CACHE_KEY + '_n');
+}
 
 function readRows_(name) {
+  if (USE_CACHE_ && name !== 'Users') {
+    const rows = rowsBundle_()[name];
+    if (!rows) throw new Error('ยังไม่ได้รัน setup');
+    return rows;
+  }
+  return readSheet_(name);
+}
+
+function readSheet_(name) {
   const s = sheet_(name), headers = H[name];
   if (s.getLastRow() < 2) return [];
   return s.getRange(2, 1, s.getLastRow() - 1, headers.length).getDisplayValues()
