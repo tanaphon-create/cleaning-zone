@@ -761,7 +761,7 @@
               <td><button class="btn sm" data-act="toggle-stu" data-id="${esc(s.id)}" data-on="${s.active}">${s.active ? 'ย้ายออก' : 'คืนสถานะ'}</button></td>
             </tr>`).join('')}</tbody>
           </table></div>
-          <div class="row" style="margin-top:10px"><span class="grow"></span><button class="btn primary sm" data-act="save-stu">บันทึกการแก้ไขรายชื่อ</button></div>
+          <div class="row" style="margin-top:10px"><button class="btn sm" data-act="renumber">เรียงเลขที่ใหม่ 1–${list.filter(s => s.active).length}</button><span class="grow"></span><button class="btn primary sm" data-act="save-stu">บันทึกการแก้ไขรายชื่อ</button></div>
           <details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">เพิ่มนักเรียนหลายคน</summary>
             <p class="sub" style="margin-top:8px">วางรายชื่อ บรรทัดละคน: <code>เลขที่ เลขประจำตัว ชื่อ นามสกุล</code> เช่น <code>12 41235 นายสมชาย ใจดี</code> (เลขประจำตัวไม่ใส่ก็ได้ · คัดลอกจาก Excel ได้)</p>
             <textarea id="bulk" placeholder="1 41201 นายสมชาย ใจดี&#10;2 41204 นางสาวสมหญิง รักเรียน"></textarea>
@@ -1118,6 +1118,13 @@
       if (!students.length) return toast('ยังไม่ได้วางรายชื่อ', true);
       const r = await busy(t, () => api('saveStudents', { zoneId: state.adminZone, students }));
       if (!r) return; await reload(); toast('เพิ่ม ' + r.added + ' คนแล้ว'); return render();
+    }
+    if (act === 'renumber') {
+      // เรียงตามเลขที่เดิม (คนที่ย้ายออกไม่นับ) แล้วใส่ 1, 2, 3 … ลงตาราง ให้ตรวจก่อนกดบันทึก
+      const rows = $$('tr[data-sid]').filter(tr => (state.data.students.find(x => x.id === tr.dataset.sid) || {}).active)
+        .sort((a, b) => (Number($('[name=no]', a).value) || 9999) - (Number($('[name=no]', b).value) || 9999));
+      rows.forEach((tr, i) => { const inp = $('[name=no]', tr); if (inp.value !== String(i + 1)) { inp.value = i + 1; inp.classList.add('filled'); } });
+      return toast('เรียงเลขที่ 1–' + rows.length + ' แล้ว — ตรวจแล้วกด "บันทึกการแก้ไขรายชื่อ"');
     }
     if (act === 'fill-codes') {
       const rows = $$('tr[data-sid]'), stu = (tr) => state.data.students.find(x => x.id === tr.dataset.sid);
