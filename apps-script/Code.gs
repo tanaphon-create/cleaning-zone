@@ -44,7 +44,8 @@ const H = {
   // เวลามาโรงเรียนที่สาย (หลัง 07:50) จากรายงานการมาเรียน
   Late: ['zoneId', 'studentId', 'date', 'time', 'source'],
   // สัปดาห์ที่กด "เริ่มเก็บ" แล้ว (week = วันจันทร์) · ค่าปรับที่เช็คในเว็บคิดเงินเฉพาะสัปดาห์ที่อยู่ในชีตนี้
-  Weeks: ['zoneId', 'week', 'byName', 'at'],
+  // kind: zone = ค่าปรับไม่ทำเขต · room = ค่าห้อง (เก็บทุกคน คนละ roomFine บาทต่อสัปดาห์)
+  Weeks: ['zoneId', 'week', 'byName', 'at', 'kind'],
 };
 const STATUSES = ['present', 'skip', 'absent', 'leave'];
 // publicView = 1 เปิดให้ดูข้อมูลโดยไม่ต้องเข้าสู่ระบบ (ดูอย่างเดียว) · maskNames = 1 ซ่อนนามสกุลในหน้าสาธารณะ
@@ -138,7 +139,7 @@ function buildData_(me) {
     opening: readRows_('Opening').filter(o => can(o.zoneId)).map(o => ({
       studentId: o.studentId, zoneId: o.zoneId, asOf: o.asOf, zoneDue: Number(o.zoneDue) || 0, roomDue: Number(o.roomDue) || 0,
     })),
-    weeks: optRows_('Weeks').filter(w => can(w.zoneId)).map(w => ({ zoneId: w.zoneId, week: w.week })),
+    weeks: optRows_('Weeks').filter(w => can(w.zoneId)).map(w => ({ zoneId: w.zoneId, week: w.week, kind: w.kind === 'room' ? 'room' : 'zone' })),
     late: optRows_('Late').filter(l => can(l.zoneId)).map(l => ({ studentId: l.studentId, date: l.date, time: l.time })),
     payments: readRows_('Payments').filter(p => can(p.zoneId)).map(p => ({
       id: p.id, studentId: p.studentId, zoneId: p.zoneId, date: p.date, kind: p.kind, amount: Number(p.amount) || 0,
@@ -549,17 +550,19 @@ function setWeek_(b) {
   const me = requireSession_(b.token);
   requireZone_(me, b.zoneId);
   if (!isDate_(b.week)) throw new Error('สัปดาห์ไม่ถูกต้อง');
+  const kind = b.kind === 'room' ? 'room' : 'zone';
+  const same = (w) => w.zoneId === b.zoneId && w.week === b.week && (w.kind === 'room' ? 'room' : 'zone') === kind;
   return withLock_(() => {
     const ss = ss_();
     if (!ss.getSheetByName('Weeks')) {
       const sh = ss.insertSheet('Weeks'); sh.getRange('A:Z').setNumberFormat('@');
       sh.getRange(1, 1, 1, H.Weeks.length).setValues([H.Weeks]); sh.setFrozenRows(1);
     }
-    const rows = readRows_('Weeks'), has = rows.some(w => w.zoneId === b.zoneId && w.week === b.week);
-    if (b.on && !has) rows.push({ zoneId: b.zoneId, week: b.week, byName: me.name, at: now_() });
+    const rows = readRows_('Weeks'), has = rows.some(same);
+    if (b.on && !has) rows.push({ zoneId: b.zoneId, week: b.week, byName: me.name, at: now_(), kind });
     if (!b.on && has) {
-      if (readRows_('Payments').some(p => p.zoneId === b.zoneId && p.week === b.week && p.status !== 'void')) throw new Error('สัปดาห์นี้รับเงินไปแล้ว ยกเลิกการรับเงินก่อน');
-      writeAll_('Weeks', rows.filter(w => !(w.zoneId === b.zoneId && w.week === b.week)));
+      if (readRows_('Payments').some(p => p.zoneId === b.zoneId && p.week === b.week && (p.kind === 'room' ? 'room' : 'zone') === kind && p.status !== 'void')) throw new Error('สัปดาห์นี้รับเงินไปแล้ว ยกเลิกการรับเงินก่อน');
+      writeAll_('Weeks', rows.filter(w => !same(w)));
       return { on: false };
     }
     writeAll_('Weeks', rows);
