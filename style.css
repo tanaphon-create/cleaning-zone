@@ -351,3 +351,8 @@ dialog { max-height: calc(100dvh - 32px); overflow: auto; }
 .wk-act { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
 .badge.ok { background: #dcfce7; color: var(--ok); }
 @media (max-width: 640px) { .wk-list li { grid-template-columns: minmax(0, 1fr); } .wk-act { justify-content: flex-start; } .wk-act .btn { flex: 1 1 auto; } }
+.wk.off small:last-child { color: var(--muted); }
+.wk-switch { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; padding: 12px; border-radius: 12px; background: #f6f7f7; border: 1px dashed var(--line); }
+.wk-switch.is-on { background: var(--brand-soft); border-style: solid; border-color: transparent; }
+.wk-switch small { color: var(--muted); }
+.wk-list.off li { opacity: .75; }

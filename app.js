@@ -68,7 +68,7 @@
         return {
           me: null, settings: db.settings, sets: db.sets || [], dutyDays: db.dutyDays || [], zones: db.zones.filter(z => z.active),
           students: db.students.map(x => ({ ...x, lastName: mask && x.lastName ? x.lastName.charAt(0) + '.' : x.lastName })),
-          checks: db.checks.map(c => ({ ...c, by: '' })), opening: db.opening, late: db.late || [],
+          checks: db.checks.map(c => ({ ...c, by: '' })), weeks: db.weeks || [], opening: db.opening, late: db.late || [],
           payments: db.payments.filter(p => p.status !== 'void').map(p => ({ id: p.id, studentId: p.studentId, zoneId: p.zoneId, date: p.date, kind: p.kind, amount: p.amount, status: p.status, week: p.week || '' })),
         };
       },
@@ -82,7 +82,7 @@
         const m = me(), can = (z) => m.role === 'admin' || m.zoneIds.includes(z);
         return {
           me: m, settings: db.settings, sets: (db.sets || []).filter(x => can(x.zoneId)), dutyDays: (db.dutyDays || []).filter(d => !d.zoneId || can(d.zoneId)), zones: db.zones.filter(z => can(z.id)), students: db.students.filter(s => can(s.zoneId)),
-          checks: db.checks.filter(c => can(c.zoneId)), opening: db.opening.filter(o => can(o.zoneId)), late: (db.late || []).filter(l => can(l.zoneId)), payments: db.payments.filter(p => can(p.zoneId)),
+          checks: db.checks.filter(c => can(c.zoneId)), weeks: (db.weeks || []).filter(w => can(w.zoneId)), opening: db.opening.filter(o => can(o.zoneId)), late: (db.late || []).filter(l => can(l.zoneId)), payments: db.payments.filter(p => can(p.zoneId)),
         };
       },
       saveChecks() {
@@ -155,6 +155,16 @@
         db.settings = { zoneFine: Number(b.settings.zoneFine) || 0, roomFine: Number(b.settings.roomFine) || 0, checkDays: b.settings.checkDays,
           publicView: !!b.settings.publicView, maskNames: !!b.settings.maskNames, termStart: b.settings.termStart || '' };
         return db.settings;
+      },
+      setWeek() {
+        const m = me(); zoneOk(m, b.zoneId); db.weeks = db.weeks || [];
+        const has = db.weeks.some(w => w.zoneId === b.zoneId && w.week === b.week);
+        if (b.on && !has) db.weeks.push({ zoneId: b.zoneId, week: b.week });
+        if (!b.on && has) {
+          if (db.payments.some(p => p.zoneId === b.zoneId && p.week === b.week && p.status !== 'void')) throw new Error('สัปดาห์นี้รับเงินไปแล้ว ยกเลิกการรับเงินก่อน');
+          db.weeks = db.weeks.filter(w => !(w.zoneId === b.zoneId && w.week === b.week));
+        }
+        return { on: !!b.on };
       },
       listUsers() { admin(); return db.users.map(u => ({ username: u.username, name: u.name, role: u.role, zoneIds: u.zoneIds, active: u.active })); },
       saveUser() {
@@ -231,6 +241,7 @@
     return plain(fullName(s)).includes(plain(q)) || plain(s.code).includes(plain(q));
   };
   // มาโรงเรียนสาย (หลัง 07:50): วันที่เป็นสีเหลือง
+  const weekOn = (zoneId, dt) => state.data.weekOn.has(zoneId + '|' + mondayOf(dt));
   const lateAt = (sid, dt) => (state.data.lateIdx[sid] || {})[dt] || '';
   const lateDate = (sid, dt, text) => { const t = lateAt(sid, dt); return t ? `<span class="late" title="มาโรงเรียน ${t} น. (สาย)">${text}</span>` : text; };
   const codeTag = (s) => s.code ? `<span class="code-tag">${esc(s.code)}</span>` : '';
@@ -277,6 +288,7 @@
       if (c.roomAbsent) r.room.push(c.date);
       // ข้อมูลจากระบบเดิมรวมอยู่ในยอดยกมาแล้ว — คิดค่าปรับเฉพาะที่เช็คในเว็บนี้หลังวันยกยอด
       if (c.source === 'import' || (r.open && c.date <= r.open.asOf)) return;
+      if (!weekOn(zoneId, c.date)) return; // สัปดาห์ที่ยังไม่กด "เริ่มเก็บ" ไม่คิดเงิน
       if (c.status === 'skip') r.zoneFine += set.zoneFine;
       if (c.roomAbsent) r.roomFine += set.roomFine;
     });
@@ -462,6 +474,8 @@
     d.dutyDays = d.dutyDays || [];
     d.sets = d.sets || [];
     d.late = d.late || [];
+    d.weeks = d.weeks || [];
+    d.weekOn = new Set(d.weeks.map(w => w.zoneId + '|' + w.week));
     d.lateIdx = {};
     d.late.forEach(l => { (d.lateIdx[l.studentId] = d.lateIdx[l.studentId] || {})[l.date] = l.time; });
     d.checks.forEach(c => { if (!ST[c.status]) c.status = c.zoneAbsent ? 'skip' : 'present'; });
@@ -651,8 +665,10 @@
       const w = out[p.studentId]; if (!w || p.week !== mon || p.status === 'void') return;
       w.pays.push(p); if (p.kind === 'room') w.roomPaid += p.amount; else w.zonePaid += p.amount;
     });
+    const on = state.data.weekOn.has(zoneId + '|' + mon);
     Object.values(out).forEach(w => {
-      w.zoneDue = w.zoneDays.length * set.zoneFine; w.roomDue = w.roomDays.length * set.roomFine;
+      w.zoneWould = w.zoneDays.length * set.zoneFine; w.roomWould = w.roomDays.length * set.roomFine;
+      w.zoneDue = on ? w.zoneWould : 0; w.roomDue = on ? w.roomWould : 0;
       w.zoneLeft = Math.max(0, w.zoneDue - w.zonePaid); w.roomLeft = Math.max(0, w.roomDue - w.roomPaid);
     });
     return out;
@@ -668,13 +684,20 @@
     const tot = (k) => due.reduce((a, w) => a + w[k], 0);
     const left = tot('zoneLeft') + tot('roomLeft'), paid = due.reduce((a, w) => a + Math.min(w.zoneDue, w.zonePaid) + Math.min(w.roomDue, w.roomPaid), 0);
     const chip = (m) => { const D = Object.values(weekDues(zid, m)); const l = D.reduce((a, w) => a + w.zoneLeft + w.roomLeft, 0), d = D.reduce((a, w) => a + w.zoneDue + w.roomDue, 0);
-      return `<button class="wk ${m === mon ? 'on' : ''} ${d ? (l ? 'owe' : 'ok') : ''}" data-act="sum-week" data-v="${m}" aria-pressed="${m === mon}"><b>สัปดาห์ที่ ${weekNo(m, start)}</b><small>${esc(weekRange(m))}</small><small>${d ? (l ? 'ค้าง ' + baht(l) : '✓ เก็บครบ') : 'ไม่มียอด'}</small></button>`; };
+      const isOn = state.data.weekOn.has(zid + '|' + m), would = D.reduce((a, w) => a + w.zoneWould + w.roomWould, 0);
+      const st = !isOn ? (would ? 'ยังไม่เก็บ · ' + baht(would) : 'ยังไม่เก็บ') : d ? (l ? 'ค้าง ' + baht(l) : '✓ เก็บครบ') : 'เก็บ · ไม่มียอด';
+      return `<button class="wk ${m === mon ? 'on' : ''} ${isOn ? (d ? (l ? 'owe' : 'ok') : '') : 'off'}" data-act="sum-week" data-v="${m}" aria-pressed="${m === mon}"><b>สัปดาห์ที่ ${weekNo(m, start)}</b><small>${esc(weekRange(m))}</small><small>${st}</small></button>`; };
+    const monOn = state.data.weekOn.has(zid + '|' + mon), wouldList = list.filter(w => w.zoneWould || w.roomWould);
     const old = Object.values(ledger(zid)).reduce((a, r) => a + (r.open ? Math.max(0, r.open.zoneDue) + Math.max(0, r.open.roomDue) : 0), 0);
     const asOf = (Object.values(ledger(zid)).find(r => r.open) || {}).open;
     main.innerHTML = `
       ${modeSeg()}
       <section class="card">
         <div class="wk-strip" role="list">${weeks.map(chip).join('')}</div>
+        <div class="wk-switch ${monOn ? 'is-on' : ''}">
+          <div class="grow"><b>สัปดาห์ที่ ${weekNo(mon, start)}: ${monOn ? 'เก็บเงิน' : 'ยังไม่เก็บเงิน'}</b><br><small>${monOn ? 'ค่าปรับของสัปดาห์นี้รวมในยอดค้างแล้ว' : 'กด "เริ่มเก็บ" แล้วค่าปรับของสัปดาห์นี้จึงจะนำมาคิด · ไม่กดก็ไม่คิด'}</small></div>
+          ${canEdit() ? `<button class="btn ${monOn ? '' : 'primary'}" data-act="wk-toggle" data-on="${monOn ? '0' : '1'}">${monOn ? 'เลิกเก็บสัปดาห์นี้' : 'เริ่มเก็บสัปดาห์นี้'}</button>` : ''}
+        </div>
         <div class="totals" style="margin-top:12px">
           <div class="total"><span>สัปดาห์ที่ ${weekNo(mon, start)} · ต้องเก็บ</span><b>${baht(tot('zoneDue') + tot('roomDue'))}</b></div>
           <div class="total"><span>เก็บแล้ว</span><b class="money">${baht(paid)}</b></div>
@@ -694,7 +717,11 @@
               : canEdit() ? `${w.zoneLeft ? `<button class="btn sm" data-act="wk-pay" data-id="${esc(s.id)}" data-k="zone">ค่าเขต ${w.zoneLeft}</button>` : ''}${w.roomLeft ? `<button class="btn sm" data-act="wk-pay" data-id="${esc(s.id)}" data-k="room">ค่าห้อง ${w.roomLeft}</button>` : ''}${w.zoneLeft && w.roomLeft ? `<button class="btn sm primary" data-act="wk-pay" data-id="${esc(s.id)}" data-k="all">ทั้งหมด ${w.zoneLeft + w.roomLeft}</button>` : ''}`
               : '<span class="badge gray">ยังไม่จ่าย</span>'}</div>
           </li>`;
-        }).join('')}</ul>` : `<div class="empty">สัปดาห์นี้ไม่มีค่าปรับที่ต้องเก็บ${Object.values(W).some(w => w.oldDays.length) ? '<br><small>วันที่ขาดในสัปดาห์นี้มาจากระบบเดิม เงินรวมอยู่ในยอดยกมาแล้ว</small>' : ''}</div>`}
+        }).join('')}</ul>` : !monOn && wouldList.length ? `<ul class="wk-list off">${wouldList.sort((a, b) => a.r.s.no - b.r.s.no).map(w => `<li>
+            <div class="wk-who"><span class="no">${w.r.s.no || ''}</span><button class="linkbtn name-link" data-act="student" data-id="${esc(w.r.s.id)}">${esc(fullName(w.r.s))}</button></div>
+            <div class="wk-amt">${w.zoneWould ? `<div><span class="muted">ไม่ทำเขต</span> ${w.zoneDays.length} วัน <small>(${baht(w.zoneWould)} ถ้าเก็บ)</small></div>` : ''}${w.roomWould ? `<div><span class="muted">ขาดเวรห้อง</span> ${w.roomDays.length} วัน <small>(${baht(w.roomWould)} ถ้าเก็บ)</small></div>` : ''}</div>
+            <div class="wk-act"><span class="badge gray">ยังไม่คิดเงิน</span></div></li>`).join('')}</ul>`
+          : `<div class="empty">สัปดาห์นี้ไม่มีค่าปรับที่ต้องเก็บ${Object.values(W).some(w => w.oldDays.length) ? '<br><small>วันที่ขาดในสัปดาห์นี้มาจากระบบเดิม เงินรวมอยู่ในยอดยกมาแล้ว</small>' : ''}</div>`}
         ${old && asOf ? `<p class="sub" style="margin:14px 0 0">ยอดยกมาจากระบบเดิม (ก่อน ${esc(thDate(asOf.asOf))}) ไม่ได้แยกรายสัปดาห์ · เก็บได้ที่ปุ่ม "รับเงิน" ในมุมมองรายคน</p>` : ''}
       </section>`;
     const on = $('.wk.on', main); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -810,7 +837,7 @@
         <h4>${parseIso(k + '-01').toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })} <span class="muted">· ${byMonth[k].length} วัน</span></h4>
         <ol>${byMonth[k].sort((x, y) => y.date.localeCompare(x.date)).map(c => `<li>
           <span class="h-date">${lateDate(s.id, c.date, esc(thDate(c.date, { weekday: 'short', month: 'short', year: 'numeric' })))}${lateAt(s.id, c.date) ? `<small class="late-t">มาสาย ${esc(lateAt(s.id, c.date))} น.</small>` : ''}</span>
-          <span class="h-tags">${c.status !== 'present' ? `<span class="dchip ${ST[c.status].cls}">${esc(ST[c.status].l)}${c.status === 'skip' && !(c.source === 'import' || (r.open && c.date <= r.open.asOf)) ? ' · ' + baht(set.zoneFine) : ''}</span>` : ''}${c.roomAbsent ? `<span class="dchip room">ขาดเวรห้อง</span>` : ''}</span>
+          <span class="h-tags">${c.status !== 'present' ? `<span class="dchip ${ST[c.status].cls}">${esc(ST[c.status].l)}${c.status === 'skip' && !(c.source === 'import' || (r.open && c.date <= r.open.asOf)) ? (weekOn(s.zoneId, c.date) ? ' · ' + baht(set.zoneFine) : ' · ยังไม่เก็บ') : ''}</span>` : ''}${c.roomAbsent ? `<span class="dchip room">ขาดเวรห้อง</span>` : ''}</span>
           <small class="muted">${c.source === 'import' ? 'ระบบเดิม' : c.by ? 'โดย ' + esc(c.by) : ''}</small></li>`).join('')}</ol>`).join('')}</div>` : '<p class="muted">มาทำเขตครบทุกวัน</p>'}
       ${pays.length ? `<h3 style="margin:16px 0 0;font-size:14px">การจ่ายเงิน</h3><ul class="pay-list">${pays.map(p => `<li><span class="grow">${esc(thDate(p.date))} · ${p.kind === 'room' ? 'ค่าห้อง' : 'ค่าเขต'}</span><b>${baht(p.amount)}</b></li>`).join('')}</ul>` : ''}
       <div class="modal-actions" style="margin-top:16px"><button class="btn" data-act="close">ปิด</button>${canEdit() ? `<button class="btn primary" data-act="pay" data-id="${esc(studentId)}">รับเงิน</button>` : ''}</div>`);
@@ -1196,6 +1223,17 @@
     if (act === 'sum-week') { state.sum.week = t.dataset.v; return renderWeekly($('#main')); }
     if (act === 'wk-pay') return weekPay(t);
     if (act === 'wk-undo') return weekUndo(t);
+    if (act === 'wk-toggle') {
+      const on = t.dataset.on === '1', mon = state.sum.week, zid = state.zoneId;
+      const W = Object.values(weekDues(zid, mon)), would = W.reduce((a, w) => a + w.zoneWould + w.roomWould, 0);
+      if (on && would && !confirm('เริ่มเก็บสัปดาห์นี้? ค่าปรับ ' + baht(would) + ' จะรวมเข้ายอดค้างของนักเรียน')) return;
+      if (!on && !confirm('เลิกเก็บสัปดาห์นี้? ค่าปรับของสัปดาห์นี้จะไม่นำมาคิด')) return;
+      const r = await busy(t, () => api('setWeek', { zoneId: zid, week: mon, on }));
+      if (!r) return;
+      if (on) { state.data.weeks.push({ zoneId: zid, week: mon }); state.data.weekOn.add(zid + '|' + mon); }
+      else { state.data.weeks = state.data.weeks.filter(w => !(w.zoneId === zid && w.week === mon)); state.data.weekOn.delete(zid + '|' + mon); }
+      toast(on ? 'เริ่มเก็บสัปดาห์นี้แล้ว' : 'เลิกเก็บสัปดาห์นี้แล้ว'); return renderWeekly($('#main'));
+    }
     if (act === 'student') return openStudent(t.dataset.id);
     if (act === 'logout') { try { await api('logout'); } catch (_) { /* ไม่เป็นไร */ } clearCaches(); setSession(null); closeModal(); return render(); }
     if (act === 'menu') {
