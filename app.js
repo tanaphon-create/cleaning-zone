@@ -424,9 +424,9 @@
     const hits = state.data.students.filter(s => zs.has(s.zoneId) && (/^\d+$/.test(q) ? !!s.code && s.code.includes(q) : matchQ(s, q)));
     if (!hits.length) return '<p class="sub" style="margin:6px 0 0">ไม่พบนักเรียน</p>';
     return `<ul class="find-list">${hits.slice(0, 12).map(s => {
-      const r = ledger(s.zoneId)[s.id], due = r ? Math.max(0, r.zoneDue) : 0;
+      const r = ledger(s.zoneId)[s.id], due = r ? Math.max(0, r.zoneDue) : 0, rdue = r ? Math.max(0, r.roomDue) : 0;
       return `<li><button data-act="student" data-id="${esc(s.id)}"><span class="grow"><b>${esc(fullName(s))}</b>${codeTag(s)}<small>${esc(zoneName(s.zoneId))} · เลขที่ ${s.no || '-'} · ไม่ทำเขต ${r ? r.absent.length : 0} วัน</small></span>
-        <span class="money ${due > 0 ? 'due' : ''}">${due > 0 ? 'ค้าง ' + baht(due) : 'ไม่ค้าง'}</span></button></li>`;
+        <span class="money ${due + rdue > 0 ? 'due' : ''}" style="text-align:right">${due + rdue > 0 ? [due ? 'ค่าเขต ' + baht(due) : '', rdue ? 'ค่าห้อง ' + baht(rdue) : ''].filter(Boolean).join('<br>') : 'ไม่ค้าง'}</span></button></li>`;
     }).join('')}</ul>${hits.length > 12 ? `<p class="sub" style="margin:6px 0 0">และอีก ${hits.length - 12} คน · พิมพ์ให้ละเอียดขึ้น</p>` : ''}`;
   }
 
@@ -436,7 +436,8 @@
       const L = Object.values(ledger(z.id)), info = dayInfo(z.id, today), done = checkedDates(z.id);
       const missing = recentCheckDays(10, z.id).filter(dt => dt < today && !done.has(dt));
       return { z, info, missing, checkToday: isCheckDay(today, z.id), n: studentsOf(z.id).length,
-        due: L.reduce((a, r) => a + Math.max(0, r.zoneDue), 0), owing: L.filter(r => r.zoneDue > 0).length };
+        due: L.reduce((a, r) => a + Math.max(0, r.zoneDue), 0), owing: L.filter(r => r.zoneDue > 0).length,
+        rdue: L.reduce((a, r) => a + Math.max(0, r.roomDue), 0), rowing: L.filter(r => r.roomDue > 0).length };
     });
     const due = cards.filter(c => c.checkToday), doneN = due.filter(c => c.info.done).length;
     main.innerHTML = `
@@ -449,12 +450,13 @@
         <div class="total"><span>เช็ควันนี้แล้ว</span><b class="${doneN < due.length ? 'money due' : ''}">${due.length ? `${doneN} / ${due.length} เขต` : 'วันนี้ไม่ต้องเช็ค'}</b></div>
         <div class="total"><span>ไม่ทำเขตวันนี้</span><b>${cards.reduce((a, c) => a + c.info.zone, 0)} คน</b></div>
         <div class="total"><span>ค่าเขตค้างรวม</span><b class="money due">${baht(cards.reduce((a, c) => a + c.due, 0))}</b></div>
+        <div class="total"><span>ค่าห้องค้างรวม</span><b class="money due">${baht(cards.reduce((a, c) => a + c.rdue, 0))}</b></div>
       </div>
       ${cards.map(c => `
         <section class="card zone-card">
           <div class="row" style="align-items:flex-start">
             <div class="grow"><h2>${esc(c.z.name)}</h2>
-              <p class="sub" style="margin:0">${c.n} คน · ยังค้างจ่าย ${c.owing} คน รวม <b class="money due">${baht(c.due)}</b></p></div>
+              <p class="sub" style="margin:0">${c.n} คน<br>ค่าเขตค้าง ${c.owing} คน รวม <b class="money due">${baht(c.due)}</b><br>ค่าห้องค้าง ${c.rowing} คน รวม <b class="money due">${baht(c.rdue)}</b></p></div>
             <span class="status ${c.info.done ? 'ok' : c.checkToday ? 'miss' : 'off'}">${c.info.done ? '✓ เช็ควันนี้แล้ว' : c.checkToday ? 'ยังไม่เช็ควันนี้' : 'วันนี้ไม่ต้องเช็ค'}</span>
           </div>
           ${c.info.done ? `<p class="sub" style="margin:8px 0 0">วันนี้ไม่ทำเขต <b>${c.info.zone}</b> · ลา <b>${c.info.leave}</b> · ขาดเรียน <b>${c.info.miss}</b> · ขาดเวรห้อง <b>${c.info.room}</b>${c.info.by ? ' · บันทึกโดย ' + esc(c.info.by) : ''}</p>` : ''}
@@ -462,7 +464,8 @@
           ${c.missing.length ? `<div class="warn">ยังไม่ได้เช็ค ${c.missing.length} วัน: ${c.missing.map(dt => `<button class="linkbtn" data-act="goto-check" data-zone="${esc(c.z.id)}" data-date="${dt}">${shortDate(dt)}</button>`).join(' ')}</div>` : ''}
           <div class="row" style="margin-top:12px">
             <button class="btn primary grow" data-act="goto-check" data-zone="${esc(c.z.id)}" data-date="${today}">${!canEdit() ? 'ดูผลวันนี้' : c.info.done ? 'แก้ไขการเช็ควันนี้' : 'เช็ควันนี้'}</button>
-            <button class="btn grow" data-act="goto-sum" data-zone="${esc(c.z.id)}">ดูยอดค้าง</button>
+            <button class="btn grow" data-act="goto-sum" data-zone="${esc(c.z.id)}">เงินเขต</button>
+            <button class="btn grow" data-act="goto-room" data-zone="${esc(c.z.id)}">ค่าห้อง</button>
           </div>
         </section>`).join('') || '<div class="card empty">ยังไม่มีเขต</div>'}`;
     $('#h-q').addEventListener('input', (e) => { state.hq = e.target.value; $('#h-res').innerHTML = homeResults(); });
@@ -1275,11 +1278,11 @@
     if ((act === 'pick-status' || act === 'set-status' || act === 'pay' || act === 'save-checks' || act === 'all-present') && !canEdit()) return;
     if (act === 'pick-status') return pickStatus(t.dataset.id);
     if (act === 'set-status') { setDraft(t.dataset.id, { status: t.dataset.v }); closeModal(); return renderCheck($('#main')); }
-    if (act === 'goto-check' || act === 'goto-sum') {
+    if (act === 'goto-check' || act === 'goto-sum' || act === 'goto-room') {
       if (!confirmLeave()) return;
       state.zoneId = t.dataset.zone; localSet('cz_zone', state.zoneId);
       if (t.dataset.date) state.date = t.dataset.date;
-      state.tab = act === 'goto-check' ? 'check' : 'summary'; location.hash = state.tab; window.scrollTo(0, 0); return render();
+      state.tab = act === 'goto-check' ? 'check' : act === 'goto-room' ? 'room' : 'summary'; location.hash = state.tab; window.scrollTo(0, 0); return render();
     }
     if (act === 'only-absent') { state.onlyAbsent = !state.onlyAbsent; return renderCheck($('#main')); }
     if (act === 'copy-day') {
