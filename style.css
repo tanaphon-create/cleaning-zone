@@ -256,6 +256,8 @@ dialog::backdrop { background: rgba(16, 24, 20, .45); }
 .chip.st-skip, .btn.st-skip.cur { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
 .chip.st-leave, .btn.st-leave.cur { background: #eaf1ff; border-color: #2563eb; color: #2563eb; }
 .chip.st-absent, .btn.st-absent.cur { background: #eef1f0; border-color: #64748b; color: #475569; }
+.chip.st-none { background: #fff; border-color: #cbd5e1; border-style: dashed; color: #64748b; }
+.stu.st-none .name { color: #64748b; }
 .chip.st-present, .btn.st-present.cur { background: #e7f6ec; border-color: #86c79d; color: var(--ok); }
 .st-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0 6px; }
 .st-pick .btn { min-height: 64px; flex-direction: column; gap: 0; font-size: 16px; }

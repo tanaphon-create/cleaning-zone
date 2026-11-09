@@ -21,6 +21,7 @@
     absent: { l: 'ขาดเรียน', cls: 'st-absent' },
     leave: { l: 'ลา', cls: 'st-leave' },
   };
+  const ST_NONE = { l: 'ยังไม่เช็ค', cls: 'st-none' }; // วันที่ยังไม่บันทึก: ยังไม่ถือว่ามาทำจนกว่าจะติ๊ก
 
   /* ================= API ================= */
   async function api(action, payload = {}) {
@@ -538,11 +539,13 @@
       if (c.zoneId === state.zoneId && c.date === state.date && c.studentId !== MARK) d[c.studentId] = { status: c.status, room: !!c.roomAbsent };
     });
     state.draft = d; state.draftKey = key; state.dirty = false;
+    state.draftDone = dayInfo(state.zoneId, state.date).done;
   }
-  const stOf = (id) => (state.draft[id] && state.draft[id].status) || 'present';
+  const stOf = (id) => (state.draft[id] && state.draft[id].status) || (state.draftDone ? 'present' : 'none');
+  const stInfo = (k) => ST[k] || ST_NONE;
   function setDraft(id, patch) {
-    const m = Object.assign({ status: 'present', room: false }, state.draft[id], patch);
-    if (m.status === 'present' && !m.room) delete state.draft[id]; else state.draft[id] = m;
+    const m = Object.assign({ status: stOf(id), room: false }, state.draft[id], patch);
+    if (m.status === 'present' && !m.room && state.draftDone) delete state.draft[id]; else state.draft[id] = m;
     state.dirty = true;
   }
 
@@ -552,7 +555,7 @@
     const d = state.draft, L = ledger(state.zoneId), everyone = studentsOf(state.zoneId);
     const all = everyone.filter(s => onDuty(s, state.date) || d[s.id]), off = everyone.filter(s => !all.includes(s));
     const count = (k) => all.filter(s => stOf(s.id) === k).length;
-    const nRoom = all.filter(s => d[s.id] && d[s.id].room).length;
+    const nRoom = all.filter(s => d[s.id] && d[s.id].room).length, nNone = count('none');
     const info = dayInfo(state.zoneId, state.date);
     const q = state.cq.trim();
     const list = all.filter(s => matchQ(s, q) && (!state.onlyAbsent || stOf(s.id) !== 'present' || (d[s.id] && d[s.id].room)));
@@ -572,6 +575,7 @@
           <div class="stat bad"><b>${count('skip')}</b><span>ไม่ทำเขต</span></div>
           <div class="stat leave"><b>${count('leave') + count('absent')}</b><span>ลา / ขาดเรียน</span></div>
         </div>
+        ${nNone ? `<p class="hint" style="text-align:center;margin:8px 0 0">ยังไม่เช็ค <b>${nNone}</b> คน · แตะชื่อเพื่อติ๊กว่ามาทำ หรือกด "ทุกคนมา"</p>` : ''}
       </section>
       <section class="card" style="padding:10px 12px 6px">
         <div class="row" style="margin-bottom:4px">
@@ -581,12 +585,12 @@
         <p class="hint" style="margin:4px 0 2px">${ro ? 'ดูอย่างเดียว · ครูหรือหัวหน้าเขตเข้าสู่ระบบเพื่อลงข้อมูล · ลา ขาดเรียน มาทำ ไม่เสียเงิน' : `แตะชื่อ = ไม่ทำเขต`} ${ro ? '' : ` (ปรับ ${state.data.settings.zoneFine} บาท) · แตะป้ายสถานะ = เลือก ลา / ขาดเรียน · ลา ขาดเรียน มาทำ ไม่เสียเงิน`}</p>
         ${list.length ? `<ul class="list">${list.map(s => {
           const st = stOf(s.id), r = L[s.id], owe = r ? Math.max(0, r.zoneDue) : 0;
-          return `<li class="stu ${ST[st].cls}">
-            <button class="stu-main" ${dis} data-mark="zone" data-id="${esc(s.id)}" aria-label="${esc(fullName(s))}: ${ST[st].l} (แตะเพื่อสลับ มาทำ/ไม่ทำเขต)">
+          return `<li class="stu ${stInfo(st).cls}">
+            <button class="stu-main" ${dis} data-mark="zone" data-id="${esc(s.id)}" aria-label="${esc(fullName(s))}: ${stInfo(st).l} (แตะเพื่อสลับ มาทำ/ไม่ทำเขต)">
               <span class="no">${s.no || ''}</span>
               <span class="name">${esc(fullName(s))}<small>${[lateAt(s.id, state.date) ? `<span class="late">มาสาย ${esc(lateAt(s.id, state.date))}</span>` : '', s.code ? 'เลขประจำตัว ' + esc(s.code) : '', dutyLabel(s), r && r.absent.length ? `ไม่ทำเขตสะสม ${r.absent.length} วัน` : '', owe ? `ค้าง ${baht(owe)}` : ''].filter(Boolean).join(' · ')}</small></span>
             </button>
-            <button class="chip st ${ST[st].cls}" ${dis} data-act="pick-status" data-id="${esc(s.id)}" aria-label="เปลี่ยนสถานะ">${ST[st].l}${ro ? '' : '<small>▾</small>'}</button>
+            <button class="chip st ${stInfo(st).cls}" ${dis} data-act="pick-status" data-id="${esc(s.id)}" aria-label="เปลี่ยนสถานะ">${stInfo(st).l}${ro ? '' : '<small>▾</small>'}</button>
           </li>`;
         }).join('')}</ul>` : `<div class="empty">${all.length ? 'ไม่พบนักเรียนตามที่ค้นหา' : everyone.length ? 'วันนี้ไม่มีใครมีเวร' : 'เขตนี้ยังไม่มีรายชื่อนักเรียน'}</div>`}
         ${off.length ? `<details class="offduty"><summary>ไม่มีเวรวันนี้ ${off.length} คน (ไม่ต้องเช็ค ไม่เสียเงิน)</summary>
@@ -598,7 +602,7 @@
         <button class="btn primary" data-act="show-login">เข้าสู่ระบบ</button>
       </div></div>` : `<div class="savebar"><div class="savebar-in">
         <span class="grow muted" style="font-size:13px;line-height:1.3">${state.dirty ? '<span class="dot"></span> ยังไม่ได้บันทึก' : info.done ? 'บันทึกแล้ว' + (info.by ? '<br>โดย ' + esc(info.by) : '') : 'ยังไม่ได้เช็ควันนี้'}</span>
-        ${!state.dirty && info.done ? '<button class="btn" data-act="copy-day">คัดลอกสรุป</button>' : '<button class="btn" data-act="all-present">ทุกคนมา</button>'}
+        ${!state.dirty && info.done ? '<button class="btn" data-act="copy-day">คัดลอกสรุป</button>' : `<button class="btn" data-act="all-present">${nNone && nNone < all.length ? 'ที่เหลือมาทำ' : 'ทุกคนมา'}</button>`}
         <button class="btn primary" data-act="save-checks" ${state.dirty || !info.done ? '' : 'disabled'}>${info.done ? 'บันทึก' : 'บันทึกการเช็ค'}</button>
       </div></div>`}`;
     $('#check-date').addEventListener('change', (e) => { if (e.target.value && confirmLeave()) { state.date = e.target.value; render(); } else e.target.value = state.date; });
@@ -632,6 +636,8 @@
   }
 
   async function saveChecks(btn) {
+    const left = studentsOf(state.zoneId).filter(s => (onDuty(s, state.date) || state.draft[s.id]) && stOf(s.id) === 'none').length;
+    if (left && !confirm('ยังไม่ได้เช็ค ' + left + ' คน จะบันทึกว่า "มาทำ" ทั้งหมดหรือไม่?')) return;
     const marks = Object.entries(state.draft).filter(([, m]) => m.status !== 'present' || m.room).map(([id, m]) => ({ studentId: id, status: m.status, roomAbsent: !!m.room }));
     const ok = await busy(btn, () => api('saveChecks', { zoneId: state.zoneId, date: state.date, marks }));
     if (ok === undefined) return;
@@ -1268,7 +1274,7 @@
       if (!canEdit()) return;
       const id = t.dataset.id;
       if (t.dataset.mark === 'room') setDraft(id, { room: !(state.draft[id] && state.draft[id].room) });
-      else setDraft(id, { status: stOf(id) === 'skip' ? 'present' : 'skip' });
+      else { const cur = stOf(id); setDraft(id, { status: cur === 'none' || cur === 'skip' ? 'present' : 'skip' }); }
       renderCheck($('#main')); return;
     }
     const act = t.dataset.act;
@@ -1324,7 +1330,12 @@
       return bindPw();
     }
     if (act === 'day') { if (confirmLeave()) { state.date = stepDay(state.date, Number(t.dataset.n), state.zoneId); if (state.date > todayIso()) state.date = todayIso(); render(); } return; }
-    if (act === 'all-present') { studentsOf(state.zoneId).forEach(s => { delete state.draft[s.id]; }); state.dirty = true; return renderCheck($('#main')); }
+    if (act === 'all-present') {
+      // ติ๊กคนที่ยังไม่เช็คให้เป็นมาทำ (คนที่ติ๊กไปแล้วคงไว้) · ถ้าเช็คครบแล้ว = ล้างไม่ทำเขตกลับเป็นมาทำ · ลา ขาดเรียน คงไว้
+      const S = studentsOf(state.zoneId), anyNone = S.some(s => stOf(s.id) === 'none');
+      S.forEach(s => { const k = stOf(s.id); if (k === 'none' || (!anyNone && k === 'skip')) setDraft(s.id, { status: 'present' }); });
+      state.dirty = true; return renderCheck($('#main'));
+    }
     if (act === 'save-checks') return saveChecks(t);
     if (act === 'pay') return openPay(t.dataset.id);
     if (act === 'void-pay') {
