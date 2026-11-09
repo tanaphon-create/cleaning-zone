@@ -602,8 +602,8 @@
         <button class="btn primary" data-act="show-login">เข้าสู่ระบบ</button>
       </div></div>` : `<div class="savebar"><div class="savebar-in">
         <span class="grow muted" style="font-size:13px;line-height:1.3">${state.dirty ? '<span class="dot"></span> ยังไม่ได้บันทึก' : info.done ? 'บันทึกแล้ว' + (info.by ? '<br>โดย ' + esc(info.by) : '') : 'ยังไม่ได้เช็ควันนี้'}</span>
-        ${!state.dirty && info.done ? '<button class="btn" data-act="copy-day">คัดลอกสรุป</button>' : `<button class="btn" data-act="all-present">${nNone && nNone < all.length ? 'ที่เหลือมาทำ' : 'ทุกคนมา'}</button>`}
-        <button class="btn primary" data-act="save-checks" ${state.dirty || !info.done ? '' : 'disabled'}>${info.done ? 'บันทึก' : 'บันทึกการเช็ค'}</button>
+        ${!state.dirty && info.done ? '<button class="btn" data-act="recheck">เช็คใหม่</button><button class="btn" data-act="copy-day">คัดลอกสรุป</button>' : `<button class="btn" data-act="all-present">${nNone && nNone < all.length ? 'ที่เหลือมาทำ' : 'ทุกคนมา'}</button>`}
+        ${state.dirty || !info.done ? `<button class="btn primary" data-act="save-checks">${info.done ? 'บันทึก' : 'บันทึกการเช็ค'}</button>` : ''}
       </div></div>`}`;
     $('#check-date').addEventListener('change', (e) => { if (e.target.value && confirmLeave()) { state.date = e.target.value; render(); } else e.target.value = state.date; });
     $('#c-q').addEventListener('input', (e) => { state.cq = e.target.value; renderCheck(main); const el = $('#c-q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
@@ -614,6 +614,7 @@
     modal(`<h2>${esc(fullName(s))}</h2><p class="sub">${esc(thDate(state.date, { weekday: 'long' }))} · เลือกสถานะการทำเขต</p>
       <div class="st-pick">${Object.keys(ST).map(k => `<button class="btn ${ST[k].cls} ${k === cur ? 'cur' : ''}" data-act="set-status" data-id="${esc(id)}" data-v="${k}">
         ${ST[k].l}<small>${k === 'skip' ? 'ปรับ ' + state.data.settings.zoneFine + ' บาท' : 'ไม่เสียเงิน'}</small></button>`).join('')}</div>
+      ${cur !== 'none' ? `<button class="btn block st-none-btn" data-act="set-status" data-id="${esc(id)}" data-v="none">เอาออก (กลับเป็น ยังไม่เช็ค)</button>` : ''}
       <div class="modal-actions"><button class="btn" data-act="close">ยกเลิก</button></div>`);
   }
 
@@ -638,7 +639,7 @@
   async function saveChecks(btn) {
     const left = studentsOf(state.zoneId).filter(s => (onDuty(s, state.date) || state.draft[s.id]) && stOf(s.id) === 'none').length;
     if (left && !confirm('ยังไม่ได้เช็ค ' + left + ' คน จะบันทึกว่า "มาทำ" ทั้งหมดหรือไม่?')) return;
-    const marks = Object.entries(state.draft).filter(([, m]) => m.status !== 'present' || m.room).map(([id, m]) => ({ studentId: id, status: m.status, roomAbsent: !!m.room }));
+    const marks = Object.entries(state.draft).filter(([, m]) => m.status !== 'none' && (m.status !== 'present' || m.room)).map(([id, m]) => ({ studentId: id, status: m.status, roomAbsent: !!m.room }));
     const ok = await busy(btn, () => api('saveChecks', { zoneId: state.zoneId, date: state.date, marks }));
     if (ok === undefined) return;
     const me = state.data.me.name;
@@ -1337,6 +1338,12 @@
       state.dirty = true; return renderCheck($('#main'));
     }
     if (act === 'save-checks') return saveChecks(t);
+    if (act === 'recheck') {
+      // เช็คใหม่ทั้งวัน: คนที่เช็คว่ามาทำ / ไม่ทำเขต กลับเป็น "ยังไม่เช็ค" · ลา ขาดเรียน คงไว้ · ต้องกดบันทึกอีกครั้ง
+      if (!canEdit() || !confirm('เช็คใหม่วันนี้?\nคนที่เช็คว่า มาทำ / ไม่ทำเขต จะกลับเป็น "ยังไม่เช็ค" (ลา ขาดเรียน คงไว้)\nติ๊กใหม่แล้วกด บันทึก')) return;
+      studentsOf(state.zoneId).forEach(s => { const k = stOf(s.id); if (k === 'present' || k === 'skip') state.draft[s.id] = { status: 'none', room: false }; });
+      state.dirty = true; return renderCheck($('#main'));
+    }
     if (act === 'pay') return openPay(t.dataset.id);
     if (act === 'void-pay') {
       if (!confirm('ยกเลิกรายการรับเงินนี้?')) return;
