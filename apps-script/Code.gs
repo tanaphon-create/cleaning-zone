@@ -133,7 +133,7 @@ function buildData_(me) {
     sets: readRows_('Sets').filter(x => can(x.zoneId)).map(x => ({ id: x.id, zoneId: x.zoneId, name: x.name, days: x.days, sort: Number(x.sort) || 0 })),
     checks: readRows_('Checks').filter(c => can(c.zoneId)).map(c => ({
       zoneId: c.zoneId, date: c.date, studentId: c.studentId, zoneAbsent: bool(c.zoneAbsent), roomAbsent: bool(c.roomAbsent),
-      status: STATUSES.indexOf(c.status) >= 0 ? c.status : (bool(c.zoneAbsent) ? 'skip' : 'present'),
+      status: c.studentId === '_' && c.status === 'partial' ? 'partial' : STATUSES.indexOf(c.status) >= 0 ? c.status : (bool(c.zoneAbsent) ? 'skip' : 'present'),
       source: c.source, by: c.checkedByName,
     })),
     opening: readRows_('Opening').filter(o => can(o.zoneId)).map(o => ({
@@ -156,7 +156,8 @@ function saveChecks_(b) {
   const ids = new Set(readRows_('Students').filter(s => s.zoneId === b.zoneId).map(s => s.id));
   const marks = (Array.isArray(b.marks) ? b.marks : [])
     .map(m => ({ studentId: m.studentId, status: STATUSES.indexOf(m.status) >= 0 ? m.status : 'present', roomAbsent: !!m.roomAbsent }))
-    .filter(m => ids.has(m.studentId) && (m.status !== 'present' || m.roomAbsent));
+    // partial = บันทึกเฉพาะคนที่เช็คแล้ว (เก็บแถว "มาทำ" ด้วย) คนที่ไม่มีแถว = ยังไม่เช็ค
+    .filter(m => ids.has(m.studentId) && (b.partial || m.status !== 'present' || m.roomAbsent));
   return withLock_(() => {
     const keep = readRows_('Checks').filter(c => !(c.zoneId === b.zoneId && c.date === b.date));
     const add = marks.map(m => ({
@@ -164,7 +165,7 @@ function saveChecks_(b) {
       roomAbsent: m.roomAbsent ? 'TRUE' : 'FALSE', source: 'web', checkedByName: me.name, checkedAt: now_(), status: m.status,
     }));
     // แถว studentId "_" = เขตนี้เช็ควันนี้แล้ว (แม้ทุกคนมา)
-    add.push({ zoneId: b.zoneId, date: b.date, studentId: '_', zoneAbsent: 'FALSE', roomAbsent: 'FALSE', source: 'web', checkedByName: me.name, checkedAt: now_() });
+    add.push({ zoneId: b.zoneId, date: b.date, studentId: '_', zoneAbsent: 'FALSE', roomAbsent: 'FALSE', source: 'web', checkedByName: me.name, checkedAt: now_(), status: b.partial ? 'partial' : '' });
     writeAll_('Checks', keep.concat(add));
     return { saved: add.length };
   });

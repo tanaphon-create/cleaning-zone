@@ -89,9 +89,9 @@
       saveChecks() {
         const m = me(); zoneOk(m, b.zoneId);
         db.checks = db.checks.filter(c => !(c.zoneId === b.zoneId && c.date === b.date));
-        const add = b.marks.filter(x => x.status !== 'present' || x.roomAbsent).map(x => ({ zoneId: b.zoneId, date: b.date, studentId: x.studentId,
+        const add = b.marks.filter(x => b.partial || x.status !== 'present' || x.roomAbsent).map(x => ({ zoneId: b.zoneId, date: b.date, studentId: x.studentId,
           status: x.status, zoneAbsent: x.status === 'skip', roomAbsent: !!x.roomAbsent, source: 'web', by: m.name }));
-        db.checks.push(...add, { zoneId: b.zoneId, date: b.date, studentId: MARK, zoneAbsent: false, roomAbsent: false, source: 'web', by: m.name });
+        db.checks.push(...add, { zoneId: b.zoneId, date: b.date, studentId: MARK, status: b.partial ? 'partial' : 'present', zoneAbsent: false, roomAbsent: false, source: 'web', by: m.name });
         return { saved: add.length };
       },
       addPayment() {
@@ -404,7 +404,7 @@
   function dayInfo(zoneId, dt) {
     const rows = state.data.checks.filter(c => c.zoneId === zoneId && c.date === dt);
     const st = (k) => rows.filter(c => c.status === k && c.studentId !== MARK).length;
-    return { done: rows.length > 0, zone: st('skip'), leave: st('leave'), miss: st('absent'),
+    return { done: rows.length > 0, partial: rows.some(c => c.studentId === MARK && c.status === 'partial'), zone: st('skip'), leave: st('leave'), miss: st('absent'),
       room: rows.filter(c => c.roomAbsent && c.studentId !== MARK).length, by: rows.length ? rows[rows.length - 1].by : '' };
   }
   function weekStrip(zoneId, current) {
@@ -489,7 +489,7 @@
     d.weekOn = new Set(d.weeks.map(w => w.zoneId + '|' + w.week + '|' + (w.kind || 'zone')));
     d.lateIdx = {};
     d.late.forEach(l => { (d.lateIdx[l.studentId] = d.lateIdx[l.studentId] || {})[l.date] = l.time; });
-    d.checks.forEach(c => { if (!ST[c.status]) c.status = c.zoneAbsent ? 'skip' : 'present'; });
+    d.checks.forEach(c => { if (!ST[c.status] && !(c.studentId === MARK && c.status === 'partial')) c.status = c.zoneAbsent ? 'skip' : 'present'; });
     return d;
   }
   let refreshing = false;
@@ -539,13 +539,14 @@
       if (c.zoneId === state.zoneId && c.date === state.date && c.studentId !== MARK) d[c.studentId] = { status: c.status, room: !!c.roomAbsent };
     });
     state.draft = d; state.draftKey = key; state.dirty = false;
-    state.draftDone = dayInfo(state.zoneId, state.date).done;
+    const di = dayInfo(state.zoneId, state.date);
+    state.draftDone = di.done && !di.partial; // วันที่บันทึกบางส่วน: คนที่ไม่มีแถว = ยังไม่เช็ค
   }
   const stOf = (id) => (state.draft[id] && state.draft[id].status) || (state.draftDone ? 'present' : 'none');
   const stInfo = (k) => ST[k] || ST_NONE;
   function setDraft(id, patch) {
     const m = Object.assign({ status: stOf(id), room: false }, state.draft[id], patch);
-    if (m.status === 'present' && !m.room && state.draftDone) delete state.draft[id]; else state.draft[id] = m;
+    state.draft[id] = m; // เก็บทุกการติ๊กไว้ (ตอนบันทึกเต็มวันจะไม่ส่ง "มาทำ" ไป)
     state.dirty = true;
   }
 
@@ -567,7 +568,7 @@
           <button class="btn icon" data-act="day" data-n="1" aria-label="วันทำเขตถัดไป" ${state.date >= todayIso() ? 'disabled' : ''}>›</button>
         </div>
         <p class="hint" style="text-align:center;margin-top:6px">${esc(thDate(state.date, { weekday: 'long', month: 'long', year: 'numeric' }))}${state.date === todayIso() ? ' · วันนี้' : ''}
-          · <b class="${info.done ? 'ok-text' : 'bad-text'}">${info.done ? 'เช็คแล้ว' : 'ยังไม่เช็ค'}</b></p>
+          · <b class="${info.done && !info.partial ? 'ok-text' : 'bad-text'}">${info.partial ? 'เช็คแล้วบางส่วน' : info.done ? 'เช็คแล้ว' : 'ยังไม่เช็ค'}</b></p>
         <div style="margin-top:10px">${weekStrip(state.zoneId, state.date)}</div>
         ${isCheckDay(state.date, state.zoneId) ? '' : '<div class="warn">วันนี้ไม่ใช่วันทำเขต (ยังบันทึกได้ถ้าจำเป็น)</div>'}
         <div class="stats stats3">
@@ -601,9 +602,9 @@
         ${info.done ? '<button class="btn" data-act="copy-day">คัดลอกสรุป</button>' : ''}
         <button class="btn primary" data-act="show-login">เข้าสู่ระบบ</button>
       </div></div>` : `<div class="savebar"><div class="savebar-in">
-        <span class="grow muted" style="font-size:13px;line-height:1.3">${state.dirty ? '<span class="dot"></span> ยังไม่ได้บันทึก' : info.done ? 'บันทึกแล้ว' + (info.by ? '<br>โดย ' + esc(info.by) : '') : 'ยังไม่ได้เช็ควันนี้'}</span>
-        ${!state.dirty && info.done ? '<button class="btn" data-act="recheck">เช็คใหม่</button><button class="btn" data-act="copy-day">คัดลอกสรุป</button>' : `<button class="btn" data-act="all-present">${nNone && nNone < all.length ? 'ที่เหลือมาทำ' : 'ทุกคนมา'}</button>`}
-        ${state.dirty || !info.done ? `<button class="btn primary" data-act="save-checks">${info.done ? 'บันทึก' : 'บันทึกการเช็ค'}</button>` : ''}
+        <span class="grow muted" style="font-size:13px;line-height:1.3">${state.dirty ? '<span class="dot"></span> ยังไม่ได้บันทึก' : info.partial ? 'บันทึกบางส่วนแล้ว<br>ยังไม่เช็ค ' + nNone + ' คน' : info.done ? 'บันทึกแล้ว' + (info.by ? '<br>โดย ' + esc(info.by) : '') : 'ยังไม่ได้เช็ควันนี้'}</span>
+        ${!state.dirty && info.done && !info.partial ? '<button class="btn" data-act="recheck">เช็คใหม่</button><button class="btn" data-act="copy-day">คัดลอกสรุป</button>' : `<button class="btn" data-act="all-present">${nNone && nNone < all.length ? 'ที่เหลือมาทำ' : 'ทุกคนมา'}</button>`}
+        ${state.dirty || !info.done || info.partial ? `<button class="btn primary" data-act="save-checks">${info.done ? 'บันทึก' : 'บันทึกการเช็ค'}</button>` : ''}
       </div></div>`}`;
     $('#check-date').addEventListener('change', (e) => { if (e.target.value && confirmLeave()) { state.date = e.target.value; render(); } else e.target.value = state.date; });
     $('#c-q').addEventListener('input', (e) => { state.cq = e.target.value; renderCheck(main); const el = $('#c-q'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); });
@@ -637,17 +638,19 @@
   }
 
   async function saveChecks(btn) {
+    // เช็คแค่ไหนบันทึกเท่านั้น: ยังมีคนไม่เช็ค = บันทึกบางส่วน (คนที่ไม่ได้ติ๊กยังเป็น "ยังไม่เช็ค")
     const left = studentsOf(state.zoneId).filter(s => (onDuty(s, state.date) || state.draft[s.id]) && stOf(s.id) === 'none').length;
-    if (left && !confirm('ยังไม่ได้เช็ค ' + left + ' คน จะบันทึกว่า "มาทำ" ทั้งหมดหรือไม่?')) return;
-    const marks = Object.entries(state.draft).filter(([, m]) => m.status !== 'none' && (m.status !== 'present' || m.room)).map(([id, m]) => ({ studentId: id, status: m.status, roomAbsent: !!m.room }));
-    const ok = await busy(btn, () => api('saveChecks', { zoneId: state.zoneId, date: state.date, marks }));
+    const partial = left > 0;
+    if (partial && !Object.values(state.draft).some(m => m.status !== 'none')) return toast('ยังไม่ได้เช็คใครเลย');
+    const marks = Object.entries(state.draft).filter(([, m]) => m.status !== 'none' && (partial || m.status !== 'present' || m.room)).map(([id, m]) => ({ studentId: id, status: m.status, roomAbsent: !!m.room }));
+    const ok = await busy(btn, () => api('saveChecks', { zoneId: state.zoneId, date: state.date, marks, partial }));
     if (ok === undefined) return;
     const me = state.data.me.name;
     state.data.checks = state.data.checks.filter(c => !(c.zoneId === state.zoneId && c.date === state.date))
       .concat(marks.map(m => ({ zoneId: state.zoneId, date: state.date, studentId: m.studentId, status: m.status, zoneAbsent: m.status === 'skip', roomAbsent: m.roomAbsent, source: 'web', by: me })),
-        [{ zoneId: state.zoneId, date: state.date, studentId: MARK, status: 'present', zoneAbsent: false, roomAbsent: false, source: 'web', by: me }]);
+        [{ zoneId: state.zoneId, date: state.date, studentId: MARK, status: partial ? 'partial' : 'present', zoneAbsent: false, roomAbsent: false, source: 'web', by: me }]);
     state.dirty = false; state.draftKey = '';
-    toast('บันทึกการเช็ค ' + thDate(state.date) + ' แล้ว');
+    toast('บันทึกการเช็ค ' + thDate(state.date) + ' แล้ว' + (partial ? ' · ยังไม่เช็ค ' + left + ' คน' : ''));
     render();
   }
 
