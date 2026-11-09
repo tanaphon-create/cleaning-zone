@@ -497,6 +497,7 @@
     if (refreshing) return; refreshing = true;
     const bar = $('#sync'); if (bar) bar.hidden = false;
     reload().then(() => {
+      if (!state.dirty) state.draftKey = ''; // ข้อมูลเช็คใหม่จากเครื่องอื่น → โหลดใหม่ (ถ้ายังไม่ได้แก้อะไร)
       // ไม่วาดหน้าใหม่ระหว่างที่กำลังเช็ค/พิมพ์ หรือเปิดหน้าต่างอยู่ (ข้อมูลใหม่ใช้ครั้งถัดไป)
       if (!state.dirty && !$('#modal').open && !(document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))) render();
     }).catch(e => {
@@ -533,14 +534,14 @@
   /* ---------- เช็คเขต ---------- */
   function loadDraft() {
     const key = state.zoneId + '|' + state.date;
+    const di = dayInfo(state.zoneId, state.date);
+    state.draftDone = di.done && !di.partial; // วันที่บันทึกบางส่วน: คนที่ไม่มีแถว = ยังไม่เช็ค (คำนวณใหม่ทุกครั้ง เผื่อข้อมูลเพิ่งโหลดใหม่)
     if (state.draftKey === key && state.draft) return;
     const d = {};
     state.data.checks.forEach(c => {
       if (c.zoneId === state.zoneId && c.date === state.date && c.studentId !== MARK) d[c.studentId] = { status: c.status, room: !!c.roomAbsent };
     });
     state.draft = d; state.draftKey = key; state.dirty = false;
-    const di = dayInfo(state.zoneId, state.date);
-    state.draftDone = di.done && !di.partial; // วันที่บันทึกบางส่วน: คนที่ไม่มีแถว = ยังไม่เช็ค
   }
   const stOf = (id) => (state.draft[id] && state.draft[id].status) || (state.draftDone ? 'present' : 'none');
   const stInfo = (k) => ST[k] || ST_NONE;
