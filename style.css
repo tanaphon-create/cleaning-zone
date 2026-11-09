@@ -362,3 +362,7 @@ dialog { max-height: calc(100dvh - 32px); overflow: auto; }
 .stats3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .room-list li { grid-template-columns: minmax(0, 1fr) auto; }
 @media (max-width: 640px) { .room-list li { grid-template-columns: minmax(0, 1fr) auto; } .room-list .wk-act { justify-content: flex-end; } .room-list .wk-act .btn { flex: 0 0 auto; } }
+
+/* ปุ่มติ๊กคนที่เหลือ */
+.btn.sm.st-present { background: #e7f6ec; border-color: #86c79d; color: var(--ok); }
+.btn.sm.st-skip { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
